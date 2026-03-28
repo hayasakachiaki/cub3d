@@ -1,0 +1,1718 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   cleanup.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 10:21:33 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 13:00:33 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+void	destroy_textures(t_vars *v)
+{
+	int	i;
+
+	i = 0;
+	while (i < 4)
+	{
+		if (v->tex[i].wall_img)
+		{
+			mlx_destroy_image(v->mlx, v->tex[i].wall_img);
+			v->tex[i].wall_img = NULL;
+		}
+		i++;
+	}
+}
+
+void	x_cleanup(t_vars *v)
+{
+	destroy_textures(v);
+	if (v->img)
+	{
+		mlx_destroy_image(v->mlx, v->img);
+		v->img = NULL;
+	}
+	if (v->win)
+	{
+		mlx_destroy_window(v->mlx, v->win);
+		v->win = NULL;
+	}
+	if (v->mlx)
+	{
+		mlx_destroy_display(v->mlx);
+		free(v->mlx);
+		v->mlx = NULL;
+	}
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   create_trgb.c                                      :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 18:30:01 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 18:33:36 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	is_digits(const char *s, int len)
+{
+	int	i;
+
+	i = 0;
+	if (len <= 0)
+		return (0);
+	while (i < len)
+	{
+		if (s[i] < '0' || s[i] > '9')
+			return (0);
+		i++;
+	}
+	return (1);
+}
+
+static void	skip_spaces(char **p)
+{
+	while (**p == ' ' || **p == '\t')
+		(*p)++;
+}
+
+static int	tok_len(const char *p)
+{
+	int	len;
+
+	len = 0;
+	while (p[len] && p[len] != ',' && p[len] != ' '
+		&& p[len] != '\t' && p[len] != '\n' && p[len] != '\r')
+		len++;
+	return (len);
+}
+
+static int	parse_comp(char **pp, int *out)
+{
+	int	len;
+	int	val;
+
+	skip_spaces(pp);
+	len = tok_len(*pp);
+	if (len <= 0 || len > 3 || !is_digits(*pp, len))
+		return (-1);
+	val = ft_atoi(*pp);
+	if (val < 0 || val > 255)
+		return (-1);
+	*out = val;
+	*pp += len;
+	skip_spaces(pp);
+	return (0);
+}
+
+int	create_trgb(char *line)
+{
+	char	*p;
+	int		r;
+	int		g;
+	int		b;
+
+	p = line;
+	skip_spaces(&p);
+	if (parse_comp(&p, &r) < 0)
+		return (-1);
+	if (*p != ',')
+		return (-1);
+	p++;
+	if (parse_comp(&p, &g) < 0)
+		return (-1);
+	if (*p != ',')
+		return (-1);
+	p++;
+	if (parse_comp(&p, &b) < 0)
+		return (-1);
+	skip_spaces(&p);
+	if (*p && *p != '\n' && *p != '\r')
+		return (-1);
+	return ((0 << 24) | (r << 16) | (g << 8) | b);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   draw.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: shuu <shuu@student.42.fr>                  +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:29:54 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/17 18:47:40 by shuu             ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+#include "ray.h"
+
+void	my_pixel_put(t_vars *vars, int x, int y, int color)
+{
+	char	*dst;
+
+	if (x < 0 || x >= SCREENWIDTH || y < 0 || y >= SCREENHEIGHT)
+		return ;
+	dst = vars->addr + (y * vars->line_len + x * (vars->bpp / 8));
+	*(unsigned int *)dst = color;
+}
+
+void	draw_background(t_vars *vars)
+{
+	int	x;
+	int	y;
+
+	y = 0;
+	while (y < SCREENHEIGHT)
+	{
+		x = 0;
+		while (x < SCREENWIDTH)
+		{
+			if (y < SCREENHEIGHT / 2)
+				my_pixel_put(vars, x, y, vars->ceiling_color);
+			else
+				my_pixel_put(vars, x, y, vars->floor_color);
+			x++;
+		}
+		y++;
+	}
+}
+
+void	draw_walls(t_vars *vars)
+{
+	int	x;
+
+	x = 0;
+	while (x < SCREENWIDTH)
+	{
+		cast_single_ray(vars, x);
+		x++;
+	}
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   draw_stripe.c                                      :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/24 19:37:42 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 12:58:31 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+#include "ray.h"
+
+static void	calc_bounds_ex(double dist, t_bounds *b)
+{
+	int	sh;
+	int	h;
+	int	s0;
+	int	e0;
+
+	sh = SCREENHEIGHT;
+	h = (int)(sh / dist);
+	s0 = -h / 2 + sh / 2;
+	e0 = s0 + h - 1;
+	b->start = s0;
+	if (b->start < 0)
+		b->start = 0;
+	b->end = e0;
+	if (b->end >= sh)
+		b->end = sh - 1;
+	b->h = h;
+	b->cut_top = (double)(b->start - s0);
+}
+
+static t_tex	*choose_tex(t_vars *v, t_ray *ray)
+{
+	if (ray->side == 0)
+	{
+		if (ray->ray_dir_x > 0)
+			return (&v->tex[3]);
+		return (&v->tex[2]);
+	}
+	if (ray->ray_dir_y > 0)
+		return (&v->tex[1]);
+	return (&v->tex[0]);
+}
+
+static void	draw_tex_column(t_vars *v, t_tex *t, t_bounds *b, t_col *c)
+{
+	int		y;
+	int		ty;
+	char	*src;
+	int		color;
+
+	y = b->start;
+	while (y <= b->end)
+	{
+		ty = (int)c->tpos;
+		if (ty < 0)
+			ty = 0;
+		if (ty >= t->tex_height)
+			ty = t->tex_height - 1;
+		src = t->tex_addr + ty * t->tex_line_len + c->tx * (t->tex_bpp / 8);
+		color = *(int *)src;
+		my_pixel_put(v, c->x, y, color);
+		c->tpos += c->step;
+		y++;
+	}
+}
+
+static int	prep_stripe(t_vars *v, int x, t_ray *r, t_stripe *s)
+{
+	double	dist;
+	double	wallx;
+	int		tex_x;
+	int		draw_len;
+
+	dist = compute_perp_dist(v, r);
+	calc_bounds_ex(dist, &s->b);
+	s->t = choose_tex(v, r);
+	wallx = get_wall_x(v, r, dist);
+	tex_x = get_tex_x(r, s->t, wallx);
+	s->c.x = x;
+	s->c.tx = tex_x;
+	draw_len = s->b.end - s->b.start + 1;
+	if (draw_len <= 0)
+		return (-1);
+	s->c.step = (double)s->t->tex_height / (double)s->b.h;
+	s->c.tpos = s->b.cut_top * s->c.step;
+	return (0);
+}
+
+void	draw_stripe(t_vars *v, int x, t_ray *r)
+{
+	t_stripe	s;
+
+	if (prep_stripe(v, x, r, &s) < 0)
+		return ;
+	draw_tex_column(v, s.t, &s.b, &s.c);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   init_ray.c                                         :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 18:24:31 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/24 19:38:10 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+#include "ray.h"
+
+static void	set_delta_dist(t_ray *ray)
+{
+	if (ray->ray_dir_x == 0)
+		ray->delta_dist_x = 1e30;
+	else
+		ray->delta_dist_x = fabs(1 / ray->ray_dir_x);
+	if (ray->ray_dir_y == 0)
+		ray->delta_dist_y = 1e30;
+	else
+		ray->delta_dist_y = fabs(1 / ray->ray_dir_y);
+}
+
+static void	set_step_and_side_dist(t_vars *vars, t_ray *ray)
+{
+	if (ray->ray_dir_x < 0)
+	{
+		ray->step_x = -1;
+		ray->side_dist_x = (vars->pos_x - ray->map_x) * ray->delta_dist_x;
+	}
+	else
+	{
+		ray->step_x = 1;
+		ray->side_dist_x = (ray->map_x + 1.0 - vars->pos_x) * ray->delta_dist_x;
+	}
+	if (ray->ray_dir_y < 0)
+	{
+		ray->step_y = -1;
+		ray->side_dist_y = (vars->pos_y - ray->map_y) * ray->delta_dist_y;
+	}
+	else
+	{
+		ray->step_y = 1;
+		ray->side_dist_y = (ray->map_y + 1.0 - vars->pos_y) * ray->delta_dist_y;
+	}
+}
+
+void	init_ray(t_vars *vars, int x, t_ray *ray)
+{
+	ray->camera_x = 2 * x / (double)SCREENWIDTH - 1;
+	ray->ray_dir_x = vars->dir_x + vars->plane_x * ray->camera_x;
+	ray->ray_dir_y = vars->dir_y + vars->plane_y * ray->camera_x;
+	ray->map_x = (int)vars->pos_x;
+	ray->map_y = (int)vars->pos_y;
+	ray->hit = 0;
+	set_delta_dist(ray);
+	set_step_and_side_dist(vars, ray);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   key_hooks.c                                        :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: sumedai <sumedai@student.42.fr>            +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:03:00 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/28 22:44:48 by sumedai          ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+void	destory_textures(t_vars *vars)
+{
+	int	i;
+
+	i = 0;
+	while (i < 4)
+	{
+		if (vars->tex[i].wall_img)
+			mlx_destroy_image(vars->mlx, vars->tex[i].wall_img);
+		i++;
+	}
+}
+
+int	key_press(int keycode, t_vars *vars)
+{
+	if (keycode == 119 || keycode == 13)
+		vars->keys.up = 1;
+	if (keycode == 115 || keycode == 1)
+		vars->keys.down = 1;
+	if (keycode == 97 || keycode == 0)
+		vars->keys.left = 1;
+	if (keycode == 100 || keycode == 2)
+		vars->keys.right = 1;
+	if (keycode == 65361 || keycode == 123)
+		vars->keys.rot_left = 1;
+	if (keycode == 65363 || keycode == 124)
+		vars->keys.rot_right = 1;
+	if (keycode == 65307 || keycode == 53)
+	{
+		destory_textures(vars);
+		if (vars->img)
+			mlx_destroy_image(vars->mlx, vars->img);
+		if (vars->win)
+			mlx_destroy_window(vars->mlx, vars->win);
+		if (vars->mlx)
+			mlx_destroy_display(vars->mlx);
+		free(vars->mlx);
+		exit(0);
+	}
+	return (0);
+}
+
+int	key_release(int keycode, t_vars *vars)
+{
+	if (keycode == 119 || keycode == 13)
+		vars->keys.up = 0;
+	if (keycode == 115 || keycode == 1)
+		vars->keys.down = 0;
+	if (keycode == 97 || keycode == 0)
+		vars->keys.left = 0;
+	if (keycode == 100 || keycode == 2)
+		vars->keys.right = 0;
+	if (keycode == 65361 || keycode == 123)
+		vars->keys.rot_left = 0;
+	if (keycode == 65363 || keycode == 124)
+		vars->keys.rot_right = 0;
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: sumedai <sumedai@student.42.fr>            +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:00:14 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 11:49:22 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static void	init_vars(t_vars *vars)
+{
+	vars->mlx = mlx_init();
+	vars->win = mlx_new_window(vars->mlx, SCREENWIDTH, SCREENHEIGHT, "cub3d");
+	vars->img = mlx_new_image(vars->mlx, SCREENWIDTH, SCREENHEIGHT);
+	vars->addr = mlx_get_data_addr(vars->img, &vars->bpp, &vars->line_len,
+			&vars->endian);
+	vars->keys.up = 0;
+	vars->keys.down = 0;
+	vars->keys.left = 0;
+	vars->keys.right = 0;
+	vars->keys.rot_left = 0;
+	vars->keys.rot_right = 0;
+	vars->last_time = get_time_in_ms();
+}
+
+static void	clear_map_to_walls(t_vars *vars)
+{
+	int	x;
+	int	y;
+
+	y = 0;
+	while (y < MAPHEIGHT)
+	{
+		x = 0;
+		while (x < MAPWIDTH)
+		{
+			vars->world_map[y][x] = 1;
+			x++;
+		}
+		y++;
+	}
+}
+
+int	x_bottom(t_vars *vars)
+{
+	destory_textures(vars);
+	if (vars->img)
+		mlx_destroy_image(vars->mlx, vars->img);
+	if (vars->win)
+		mlx_destroy_window(vars->mlx, vars->win);
+	if (vars->mlx)
+		mlx_destroy_display(vars->mlx);
+	free(vars->mlx);
+	exit(0);
+}
+
+static int	validate_cub(const char *path)
+{
+	size_t	len;
+
+	if (!path)
+		return (-1);
+	len = ft_strlen(path);
+	if (len < 4)
+		return (-1);
+	if (ft_strncmp(path + (len - 4), ".cub", 4) != 0)
+		return (-1);
+	return (0);
+}
+
+int	main(int argc, char **argv)
+{
+	t_vars	vars;
+
+	if (argc != 2)
+	{
+		ft_printf("Usage: %s map.cub\n", argv[0]);
+		return (1);
+	}
+	if (validate_cub(argv[1]) < 0)
+	{
+		ft_printf("Error: file must end with .cub\n");
+		return (1);
+	}
+	ft_bzero(&vars, sizeof(vars));
+	init_vars(&vars);
+	clear_map_to_walls(&vars);
+	if (load_map(&vars, argv[1]) < 0)
+	{
+		x_cleanup(&vars);
+		return (1);
+	}
+	mlx_loop_hook(vars.mlx, render, &vars);
+	mlx_hook(vars.win, 17, 1L << 17, x_bottom, &vars);
+	mlx_hook(vars.win, 2, 1L << 0, key_press, &vars);
+	mlx_hook(vars.win, 3, 1L << 1, key_release, &vars);
+	mlx_loop(vars.mlx);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_bounds.c                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 09:48:47 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 15:25:52 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	is_space(char c)
+{
+	if (c == ' ' || c == '\t')
+		return (1);
+	return (0);
+}
+
+int	bounds_first_row(const char *s, int *l, int *r)
+{
+	int	i;
+	int	j;
+
+	i = 0;
+	while (s[i] && s[i] != '\n' && s[i] != '\r' && is_space(s[i]))
+		i++;
+	j = i;
+	while (s[j] && s[j] != '\n' && s[j] != '\r')
+		j++;
+	j--;
+	while (j >= i && is_space(s[j]))
+		j--;
+	if (j < i)
+		return (-1);
+	*l = i;
+	*r = j;
+	return (0);
+}
+
+int	check_row_edges(const char *s, int *li, int *ri)
+{
+	if (bounds_first_row(s, li, ri) < 0)
+		return (-1);
+	if (s[*li] != '1')
+		return (-1);
+	if (s[*ri] != '1')
+		return (-1);
+	return (0);
+}
+
+int	side_hole(const char *row, int i)
+{
+	if (i > 0)
+	{
+		if (row[i - 1] == ' ' || row[i - 1] == '\t'
+			|| row[i - 1] == '\0' || row[i - 1] == '\n'
+			|| row[i - 1] == '\r')
+			return (1);
+	}
+	if (row[i + 1] == ' ' || row[i + 1] == '\t'
+		|| row[i + 1] == '\0' || row[i + 1] == '\n'
+		|| row[i + 1] == '\r')
+		return (1);
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_checker.c                                      :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 15:36:40 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 15:37:00 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+int	down_exposed(const char *prev, t_bounds_i *pb,
+			const char *cur, t_bounds_i *cb)
+{
+	int		i;
+	char	c;
+
+	i = pb->l;
+	while (prev[i] && i <= pb->r && prev[i] != '\n' && prev[i] != '\r')
+	{
+		c = prev[i];
+		if (c == '0' || c == 'N' || c == 'S' || c == 'E' || c == 'W')
+		{
+			if (i < cb->l || i > cb->r
+				|| cur[i] == ' ' || cur[i] == '\t'
+				|| cur[i] == '\0' || cur[i] == '\n' || cur[i] == '\r')
+				return (1);
+		}
+		i++;
+	}
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_reader.c                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 09:41:00 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 17:40:09 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	cell_exposed(const char *cur, const char *prev,
+			int i, t_bounds_i *pb)
+{
+	if (i < pb->l || i > pb->r)
+		return (1);
+	if (prev[i] == ' ' || prev[i] == '\t')
+		return (1);
+	if (prev[i] == '\0' || prev[i] == '\n' || prev[i] == '\r')
+		return (1);
+	(void)cur;
+	return (0);
+}
+
+static int	scan_exposure(t_scan *s)
+{
+	int		i;
+	char	c;
+
+	i = s->cb.l;
+	while (s->cur[i] && i <= s->cb.r && s->cur[i] != '\n' && s->cur[i] != '\r')
+	{
+		c = s->cur[i];
+		if (c != '0' && c != '1' && c != 'N' && c != 'S'
+			&& c != 'E' && c != 'W' && c != ' ' && c != '\t')
+			return (ft_printf("Error: unknown map char '%c' (row %d, col %d)\n",
+					c, s->row + 1, i + 1), -1);
+		if (c == '0' || c == 'N' || c == 'S' || c == 'E' || c == 'W')
+		{
+			if (side_hole(s->cur, i))
+				return (ft_printf("Error: map not closed by walls (row %d)\n",
+						s->row + 1), -1);
+			if (cell_exposed(s->cur, s->prev, i, &s->pb))
+				return (ft_printf("Error: map not closed by walls (row %d)\n",
+						s->row + 1), -1);
+		}
+		i++;
+	}
+	return (0);
+}
+
+int	validate_first(const char *line, t_bounds_i *b, int *pcnt)
+{
+	int	li;
+	int	ri;
+
+	if (bounds_first_row(line, &b->l, &b->r) < 0)
+		return (ft_printf("Error: map should closed by walls\n"), -1);
+	if (!row_only_walls(line))
+		return (ft_printf("Error: map should closed by walls\n"), -1);
+	if (check_row_edges(line, &li, &ri) < 0)
+	{
+		ft_printf("Error: map should closed by walls (row 1)\n");
+		return (-1);
+	}
+	*pcnt += count_players_in_row(line);
+	return (0);
+}
+
+int	validate_middle(const char *cur, t_mapread *st, int row_idx)
+{
+	t_scan	s;
+
+	if (check_row_edges(cur, &s.cb.l, &s.cb.r) < 0)
+		return (ft_printf("Error: map not closed by walls (row %d)\n",
+				row_idx + 1), -1);
+	s.cur = cur;
+	s.prev = st->prev;
+	if (check_row_edges(s.prev, &s.pb.l, &s.pb.r) < 0)
+		return (ft_printf("Error: internal error: prev row invalid\n"), -1);
+	s.row = row_idx;
+	if (down_exposed(s.prev, &s.pb, s.cur, &s.cb))
+		return (ft_printf("Error: map not closed by walls (row %d)\n",
+				row_idx + 1), -1);
+	if (scan_exposure(&s) < 0)
+		return (-1);
+	st->pcnt += count_players_in_row(cur);
+	st->last_w = row_only_walls(cur);
+	return (0);
+}
+
+int	read_map_rows(t_vars *v, int fd, char **line)
+{
+	t_mapread	st;
+	int			rc;
+	int			ok;
+
+	ft_bzero(&st, sizeof(st));
+	st.first = 1;
+	ok = skip_to_map(fd, line);
+	if (ok == 0)
+		return (0);
+	else if (ok < 0)
+		return (-1);
+	rc = 1;
+	while (*line)
+	{
+		rc = consume_row(v, line, &st);
+		if (rc <= 0)
+			break ;
+		*line = get_next_line(fd);
+	}
+	if (st.prev)
+		free(st.prev);
+	if (rc < 0)
+		return (-1);
+	return (final_checks(&st));
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_reader_utils.c                                 :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 12:10:53 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 18:48:18 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+int	skip_to_map(int fd, char **line)
+{
+	char	*p;
+
+	if (*line == NULL)
+		*line = get_next_line(fd);
+	while (*line && !is_map_line(*line))
+	{
+		p = *line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p != '\0' && *p != '\n' && *p != '\r')
+		{
+			ft_printf("Error: unknown key found\n");
+			free(*line);
+			*line = NULL;
+			return (-1);
+		}
+		free(*line);
+		*line = get_next_line(fd);
+	}
+	if (*line == NULL)
+		return (0);
+	return (1);
+}
+
+int	final_checks(t_mapread *st)
+{
+	if (st->rows == 0)
+		return (0);
+	if (!st->last_w)
+		return (ft_printf("Error: map should closed by walls\n"), -1);
+	if (st->pcnt != 1)
+		return (ft_printf("Error: player should be one\n"), -1);
+	return (st->rows);
+}
+
+static int	commit_row(t_vars *v, char *line, t_mapread *st)
+{
+	if (st->prev)
+		free(st->prev);
+	st->prev = ft_strdup(line);
+	if (st->prev == NULL)
+		return (-1);
+	parse_map_line(v, line, st->rows);
+	st->rows++;
+	return (1);
+}
+
+static int	process_first_row(t_vars *v, char *line, t_mapread *st)
+{
+	if (validate_first(line, &st->b, &st->pcnt) < 0)
+		return (-1);
+	st->last_w = 1;
+	st->first = 0;
+	return (commit_row(v, line, st));
+}
+
+int	consume_row(t_vars *v, char **line, t_mapread *st)
+{
+	int	ok;
+
+	ok = 1;
+	if (!is_map_line(*line))
+	{
+		if (st->rows > 0)
+		{
+			if (**line == '\0' || **line == '\n' || **line == '\r')
+				ok = 0;
+			else
+				ok = -1;
+		}
+		else
+			ok = 0;
+	}
+	else if (st->first)
+		ok = process_first_row(v, *line, st);
+	else if (validate_middle(*line, st, st->rows) < 0)
+		ok = -1;
+	else
+		ok = commit_row(v, *line, st);
+	free(*line);
+	*line = NULL;
+	return (ok);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_utils.c                                        :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: shuu <shuu@student.42.fr>                  +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/14 14:42:25 by shuu              #+#    #+#             */
+/*   Updated: 2025/09/29 12:18:39 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+int	is_map_line(const char *s)
+{
+	int	i;
+	int	has_tile;
+
+	if (!s)
+		return (0);
+	i = 0;
+	has_tile = 0;
+	while (s[i] && s[i] != '\n')
+	{
+		if (s[i] != '0' && s[i] != '1' && s[i] != 'N' && s[i] != 'S'
+			&& s[i] != 'E' && s[i] != 'W' && s[i] != ' ' && s[i] != '\t')
+			return (0);
+		if (s[i] == '0' || s[i] == '1' || s[i] == 'N'
+			|| s[i] == 'S' || s[i] == 'E' || s[i] == 'W')
+			has_tile = 1;
+		i++;
+	}
+	return (has_tile);
+}
+
+void	parse_map_line(t_vars *v, char *line, int row)
+{
+	int		x;
+	char	c;
+
+	x = 0;
+	while (line[x] && line[x] != '\n' && x < MAPWIDTH)
+	{
+		c = line[x];
+		if (c == '1' || c == ' ' || c == '\t')
+			v->world_map[row][x] = 1;
+		else if (c == '0')
+			v->world_map[row][x] = 0;
+		else if (c == 'N' || c == 'S' || c == 'E' || c == 'W')
+		{
+			set_player_start(v, c, x, row);
+			v->world_map[row][x] = 0;
+		}
+		else
+			v->world_map[row][x] = 1;
+		x++;
+	}
+	while (x < MAPWIDTH)
+		v->world_map[row][x++] = 1;
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   map_validate.c                                     :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 09:37:21 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 13:01:55 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	is_player(char c)
+{
+	if (c == 'N' || c == 'S')
+		return (1);
+	if (c == 'E' || c == 'W')
+		return (1);
+	return (0);
+}
+
+static int	is_space(char c)
+{
+	if (c == ' ' || c == '\t')
+		return (1);
+	return (0);
+}
+
+int	row_only_walls(const char *s)
+{
+	int	i;
+
+	i = 0;
+	while (s[i] && s[i] != '\n' && s[i] != '\r')
+	{
+		if (s[i] != '1' && !is_space(s[i]))
+			return (0);
+		i++;
+	}
+	return (1);
+}
+
+int	count_players_in_row(const char *s)
+{
+	int	i;
+	int	c;
+
+	i = 0;
+	c = 0;
+	while (s[i] && s[i] != '\n' && s[i] != '\r')
+	{
+		if (is_player(s[i]))
+			c++;
+		i++;
+	}
+	return (c);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   move.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:30:23 by mawako            #+#    #+#             */
+/*   Updated: 2025/08/30 13:31:19 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+void	move_forward(t_vars *vars, double move_speed)
+{
+	if (vars->world_map[(int)vars->pos_y]
+		[(int)(vars->pos_x + vars->dir_x * move_speed)] == 0)
+		vars->pos_x += vars->dir_x * move_speed;
+	if (vars->world_map[(int)(vars->pos_y + vars->dir_y * move_speed)]
+		[(int)vars->pos_x] == 0)
+		vars->pos_y += vars->dir_y * move_speed;
+}
+
+void	move_backward(t_vars *vars, double move_speed)
+{
+	if (vars->world_map[(int)vars->pos_y]
+		[(int)(vars->pos_x - vars->dir_x * move_speed)] == 0)
+		vars->pos_x -= vars->dir_x * move_speed;
+	if (vars->world_map[(int)(vars->pos_y - vars->dir_y * move_speed)]
+		[(int)vars->pos_x] == 0)
+		vars->pos_y -= vars->dir_y * move_speed;
+}
+
+void	move_left(t_vars *vars, double move_speed)
+{
+	if (vars->world_map[(int)vars->pos_y]
+		[(int)(vars->pos_x - vars->plane_x * move_speed)] == 0)
+		vars->pos_x -= vars->plane_x * move_speed;
+	if (vars->world_map[(int)(vars->pos_y - vars->plane_y * move_speed)]
+		[(int)vars->pos_x] == 0)
+		vars->pos_y -= vars->plane_y * move_speed;
+}
+
+void	move_right(t_vars *vars, double move_speed)
+{
+	if (vars->world_map[(int)vars->pos_y]
+		[(int)(vars->pos_x + vars->plane_x * move_speed)] == 0)
+		vars->pos_x += vars->plane_x * move_speed;
+	if (vars->world_map[(int)(vars->pos_y + vars->plane_y * move_speed)]
+		[(int)vars->pos_x] == 0)
+		vars->pos_y += vars->plane_y * move_speed;
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   parser_entry.c                                     :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 12:32:24 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 12:43:57 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static void	drain_rest(int fd, char **carry)
+{
+	char	*tmp;
+
+	if (*carry)
+	{
+		tmp = *carry;
+		while (tmp)
+		{
+			free(tmp);
+			*carry = get_next_line(fd);
+			tmp = *carry;
+		}
+	}
+	tmp = get_next_line(fd);
+	while (tmp)
+	{
+		free(tmp);
+		tmp = get_next_line(fd);
+	}
+}
+
+static int	open_map_fd(const char *path)
+{
+	int	fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+	{
+		perror("open");
+		return (-1);
+	}
+	return (fd);
+}
+
+static int	load_sections(t_vars *v, int fd, char **carry)
+{
+	if (load_texture(v, fd, carry) < 0)
+		return (-1);
+	if (load_ceiling_floor(v, fd, carry) < 0)
+		return (-1);
+	return (0);
+}
+
+static int	finish_and_check(int fd, char **carry, int rows)
+{
+	drain_rest(fd, carry);
+	close(fd);
+	if (rows < 0)
+		return (-1);
+	if (rows == 0)
+	{
+		ft_printf("Error: empty map\n");
+		return (-1);
+	}
+	return (0);
+}
+
+int	load_map(t_vars *v, const char *path)
+{
+	char	*carry;
+	int		fd;
+	int		rows;
+
+	carry = NULL;
+	fd = open_map_fd(path);
+	if (fd < 0)
+		return (-1);
+	if (load_sections(v, fd, &carry) < 0)
+	{
+		if (carry)
+			free(carry);
+		close(fd);
+		return (-1);
+	}
+	rows = read_map_rows(v, fd, &carry);
+	return (finish_and_check(fd, &carry, rows));
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   parser_fc.c                                        :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 12:31:22 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 13:02:36 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	is_blank_or_eol(char c)
+{
+	if (c == ' ' || c == '\t' || c == '\0' || c == '\n' || c == '\r')
+		return (1);
+	return (0);
+}
+
+static int	fc_apply(t_vars *v, char *p, t_fc *st, char *line)
+{
+	if (*p == 'F')
+		return (apply_floor_color(v, p, st, line));
+	if (*p == 'C')
+		return (apply_ceiling_color(v, p, st, line));
+	return (0);
+}
+
+static char	*fc_first_line(int fd, char **carry)
+{
+	char	*line;
+
+	if (*carry != NULL)
+	{
+		line = *carry;
+		*carry = NULL;
+		return (line);
+	}
+	return (get_next_line(fd));
+}
+
+static int	fc_line(t_vars *v, char *line, t_fc *st)
+{
+	char	*p;
+
+	p = line;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (is_blank_or_eol(*p))
+	{
+		free(line);
+		return (1);
+	}
+	if (*p == 'F' || *p == 'C')
+		return (fc_apply(v, p, st, line));
+	*(st->carry) = line;
+	return (0);
+}
+
+int	load_ceiling_floor(t_vars *v, int fd, char **carry)
+{
+	t_fc	st;
+	char	*line;
+	int		rc;
+
+	st.fset = 0;
+	st.cset = 0;
+	st.carry = carry;
+	line = fc_first_line(fd, carry);
+	if (!line)
+		return (-1);
+	while (line)
+	{
+		rc = fc_line(v, line, &st);
+		if (rc <= 0)
+			break ;
+		line = get_next_line(fd);
+	}
+	if (!st.fset || !st.cset)
+	{
+		ft_printf("Error: missing F or C\n");
+		return (-1);
+	}
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   parser_fc_utils.c                                  :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: shuu <shuu@student.42.fr>                  +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 15:30:00 by sumedai           #+#    #+#             */
+/*   Updated: 2025/09/29 18:27:25 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+int	apply_floor_color(t_vars *v, char *p, t_fc *st, char *line)
+{
+	char	*line_copy;
+	int		col;
+
+	line_copy = ft_strdup(p);
+	if (!line_copy)
+	{
+		free(line);
+		return (-1);
+	}
+	col = get_color(line_copy);
+	free(line_copy);
+	if (col < 0)
+	{
+		ft_printf("Error: invalid floor color (must be 0-255,0-255,0-255)\n");
+		free(line);
+		return (-1);
+	}
+	v->floor_color = col;
+	st->fset = 1;
+	free(line);
+	return (1);
+}
+
+int	apply_ceiling_color(t_vars *v, char *p, t_fc *st, char *line)
+{
+	char	*line_copy;
+	int		col;
+
+	line_copy = ft_strdup(p);
+	if (!line_copy)
+	{
+		free(line);
+		return (-1);
+	}
+	col = get_color(line_copy);
+	free(line_copy);
+	if (col < 0)
+	{
+		ft_printf("Error: invalid ceiling color (must be 0-255,0-255,0-255)\n");
+		free(line);
+		return (-1);
+	}
+	v->ceiling_color = col;
+	st->cset = 1;
+	free(line);
+	return (1);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   parser_texture.c                                   :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 12:31:03 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 13:02:56 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static int	set_tex_image(t_vars *v, int id, char *path)
+{
+	v->tex[id].dir_id = id;
+	v->tex[id].wall_img = mlx_xpm_file_to_image(
+			v->mlx, path, &v->tex[id].tex_width, &v->tex[id].tex_height);
+	if (!v->tex[id].wall_img)
+		return (-1);
+	v->tex[id].tex_addr = mlx_get_data_addr(
+			v->tex[id].wall_img, &v->tex[id].tex_bpp,
+			&v->tex[id].tex_line_len, &v->tex[id].tex_endian);
+	return (0);
+}
+
+static int	load_one_texture(t_vars *v, char *line, int dir_id, char *key)
+{
+	char	*path;
+	int		fd;
+
+	line += ft_strlen(key);
+	while (*line && (*line == '\t' || *line == ' '))
+		line++;
+	path = texture_path(line);
+	if (!path)
+		return (-1);
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+	{
+		ft_printf("Error: texture not found: %s\n", path);
+		free(path);
+		return (-1);
+	}
+	close(fd);
+	if (set_tex_image(v, dir_id, path) < 0)
+	{
+		free(path);
+		return (-1);
+	}
+	free(path);
+	return (0);
+}
+
+static int	tex_handle_line(t_vars *v, char *line, char **carry)
+{
+	char	*p;
+	char	*key;
+	int		dir_id;
+
+	p = line;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p == '\0' || *p == '\n' || *p == '\r')
+	{
+		free(line);
+		return (1);
+	}
+	if (is_dirction(p, &dir_id, &key))
+	{
+		if (load_one_texture(v, p, dir_id, key) < 0)
+		{
+			free(line);
+			return (-1);
+		}
+		free(line);
+		return (1);
+	}
+	*carry = line;
+	return (0);
+}
+
+int	load_texture(t_vars *v, int fd, char **carry)
+{
+	char	*line;
+	int		rc;
+
+	line = get_next_line(fd);
+	if (!line)
+		return (-1);
+	while (line)
+	{
+		rc = tex_handle_line(v, line, carry);
+		if (rc <= 0)
+		{
+			if (rc < 0)
+				return (-1);
+			else
+				return (0);
+		}
+		line = get_next_line(fd);
+	}
+	*carry = NULL;
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   parser_utils.c                                     :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: sumedai <sumedai@student.42.fr>            +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/13 16:07:22 by shuu              #+#    #+#             */
+/*   Updated: 2025/09/29 18:30:33 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+int	get_color(const char *line)
+{
+	const char	*start;
+
+	start = line + 1;
+	while (*start && (*start == '\t' || *start == ' '))
+		start++;
+	return (create_trgb((char *)start));
+}
+
+char	*texture_path(char *line)
+{
+	char	*path;
+	int		i;
+
+	i = 0;
+	while (line[i] && (line[i] != '\t' && line[i] != ' ' && line[i] != '\n'))
+		i++;
+	path = malloc(sizeof(char) * (i + 1));
+	if (!path)
+		return (NULL);
+	i = 0;
+	while (line[i] && (line[i] != '\t' && line[i] != ' ' && line[i] != '\n'))
+	{
+		path[i] = line[i];
+		i++;
+	}
+	path[i] = '\0';
+	return (path);
+}
+
+int	is_dirction(char *line, int *i, char **key)
+{
+	const char	*dir[] = {"NO", "SO", "WE", "EA", NULL};
+
+	*i = 0;
+	while (dir[*i])
+	{
+		if (!ft_strncmp(line, dir[*i], 2))
+		{
+			*key = (char *)dir[*i];
+			return (1);
+		}
+		(*i)++;
+	}
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   raycast_utils.c                                    :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: shuu <shuu@student.42.fr>                  +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:39:48 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/14 14:57:19 by shuu             ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+#include "cub3d.h"
+#include "ray.h"
+
+void	perform_dda(t_vars *vars, t_ray *ray)
+{
+	while (!ray->hit)
+	{
+		if (ray->side_dist_x < ray->side_dist_y)
+		{
+			ray->side_dist_x += ray->delta_dist_x;
+			ray->map_x += ray->step_x;
+			ray->side = 0;
+		}
+		else
+		{
+			ray->side_dist_y += ray->delta_dist_y;
+			ray->map_y += ray->step_y;
+			ray->side = 1;
+		}
+		if (ray->map_x < 0 || ray->map_x >= MAPWIDTH
+			|| ray->map_y < 0 || ray->map_y >= MAPHEIGHT)
+		{
+			ray->hit = 1;
+			break ;
+		}
+		if (vars->world_map[ray->map_y][ray->map_x] > 0)
+			ray->hit = 1;
+	}
+}
+
+double	compute_perp_dist(t_vars *vars, t_ray *ray)
+{
+	double	d;
+
+	if (ray->side == 0)
+		d = (ray->map_x - vars->pos_x + (1 - ray->step_x) * 0.5)
+			/ ray->ray_dir_x;
+	else
+		d = (ray->map_y - vars->pos_y + (1 - ray->step_y) * 0.5)
+			/ ray->ray_dir_y;
+	if (d < 1e-4)
+		d = 1e-4;
+	return (d);
+}
+
+void	cast_single_ray(t_vars *vars, int x)
+{
+	t_ray	ray;
+
+	init_ray(vars, x, &ray);
+	perform_dda(vars, &ray);
+	draw_stripe(vars, x, &ray);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   render.c                                           :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/27 17:30:09 by mawako            #+#    #+#             */
+/*   Updated: 2025/08/30 13:13:40 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static void	handle_movement(t_vars *vars)
+{
+	double	move_speed;
+	double	rot_speed;
+
+	move_speed = 3.0 * vars->delta_time;
+	rot_speed = 2.0 * vars->delta_time;
+	if (vars->keys.up)
+		move_forward(vars, move_speed);
+	if (vars->keys.down)
+		move_backward(vars, move_speed);
+	if (vars->keys.left)
+		move_left(vars, move_speed);
+	if (vars->keys.right)
+		move_right(vars, move_speed);
+	if (vars->keys.rot_left)
+		rotate_left(vars, rot_speed);
+	if (vars->keys.rot_right)
+		rotate_right(vars, rot_speed);
+}
+
+int	render(t_vars *vars)
+{
+	update_delta_time(vars);
+	draw_background(vars);
+	draw_walls(vars);
+	handle_movement(vars);
+	mlx_put_image_to_window(vars->mlx, vars->win, vars->img, 0, 0);
+	return (0);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   rotate.c                                           :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/30 13:09:05 by mawako            #+#    #+#             */
+/*   Updated: 2025/08/30 13:12:23 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+void	rotate_right(t_vars *vars, double rot_speed)
+{
+	double	old_dir_x;
+	double	old_plane_x;
+
+	old_dir_x = vars->dir_x;
+	old_plane_x = vars->plane_x;
+	vars->dir_x = vars->dir_x * cos(rot_speed) - vars->dir_y * sin(rot_speed);
+	vars->dir_y = old_dir_x * sin(rot_speed) + vars->dir_y * cos(rot_speed);
+	vars->plane_x = vars->plane_x * cos(rot_speed)
+		- vars->plane_y * sin(rot_speed);
+	vars->plane_y = old_plane_x * sin(rot_speed)
+		+ vars->plane_y * cos(rot_speed);
+}
+
+void	rotate_left(t_vars *vars, double rot_speed)
+{
+	double	old_dir_x;
+	double	old_plane_x;
+
+	old_dir_x = vars->dir_x;
+	old_plane_x = vars->plane_x;
+	vars->dir_x = vars->dir_x * cos(-rot_speed) - vars->dir_y * sin(-rot_speed);
+	vars->dir_y = old_dir_x * sin(-rot_speed) + vars->dir_y * cos(-rot_speed);
+	vars->plane_x = vars->plane_x * cos(-rot_speed)
+		- vars->plane_y * sin(-rot_speed);
+	vars->plane_y = old_plane_x * sin(-rot_speed)
+		+ vars->plane_y * cos(-rot_speed);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   set_player_start.c                                 :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/30 14:15:08 by mawako            #+#    #+#             */
+/*   Updated: 2025/08/30 14:15:26 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+static void	pattern_ns(t_vars *vars, char c)
+{
+	if (c == 'N')
+	{
+		vars->dir_x = 0;
+		vars->dir_y = -1;
+		vars->plane_x = 0.66;
+		vars->plane_y = 0;
+	}
+	else
+	{
+		vars->dir_x = 0;
+		vars->dir_y = 1;
+		vars->plane_x = -0.66;
+		vars->plane_y = 0;
+	}
+}
+
+static void	pattern_we(t_vars *vars, char c)
+{
+	if (c == 'W')
+	{
+		vars->dir_x = -1;
+		vars->dir_y = 0;
+		vars->plane_x = 0;
+		vars->plane_y = -0.66;
+	}
+	else
+	{
+		vars->dir_x = 1;
+		vars->dir_y = 0;
+		vars->plane_x = 0;
+		vars->plane_y = 0.66;
+	}
+}
+
+void	set_player_start(t_vars *vars, char c, int x, int y)
+{
+	vars->pos_x = x + 0.5;
+	vars->pos_y = y + 0.5;
+	if (c == 'N' || c == 'S')
+		pattern_ns(vars, c);
+	else if (c == 'W' || c == 'E')
+		pattern_we(vars, c);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   stripe_math.c                                      :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/09/29 12:53:50 by mawako            #+#    #+#             */
+/*   Updated: 2025/09/29 12:53:56 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+#include "ray.h"
+
+double	get_wall_x(t_vars *v, t_ray *r, double dist)
+{
+	double	wallx;
+
+	if (r->side == 0)
+		wallx = v->pos_y + dist * r->ray_dir_y;
+	else
+		wallx = v->pos_x + dist * r->ray_dir_x;
+	wallx -= floor(wallx);
+	return (wallx);
+}
+
+int	get_tex_x(t_ray *r, t_tex *t, double wallx)
+{
+	int	tx;
+
+	tx = (int)(wallx * (double)t->tex_width);
+	if (r->side == 0 && r->ray_dir_x > 0)
+		tx = t->tex_width - tx - 1;
+	else if (r->side == 1 && r->ray_dir_y < 0)
+		tx = t->tex_width - tx - 1;
+	return (tx);
+}
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   time_utils.c                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: mawako <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/28 13:42:29 by mawako            #+#    #+#             */
+/*   Updated: 2025/08/28 13:55:45 by mawako           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "cub3d.h"
+
+long	get_time_in_ms(void)
+{
+	struct timeval	tv;
+
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec * 1000 + tv.tv_usec / 1000);
+}
+
+void	update_delta_time(t_vars *vars)
+{
+	long	current_time;
+
+	current_time = get_time_in_ms();
+	vars->delta_time = (current_time - vars->last_time) / 1000.0;
+	vars->last_time = current_time;
+}
